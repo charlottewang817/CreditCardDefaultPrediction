@@ -1,0 +1,527 @@
+---
+title: "Predict likelihood of Default"
+author: "XW, PC"
+date: "March 25, 2018"
+output: 
+  html_document:
+    fig_width: 7
+    fig_height: 4
+    fig_caption: true
+fontsize: 11pt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+rm(list=ls())
+df = read.csv("UCI_Credit_Card.csv")
+colnames(df)[7] <- "PAY_1"
+df <- df[!is.na(df$default.payment.next.month), ]
+df$default.payment.next.month = as.factor(df$default.payment.next.month)
+df <- subset(df,df$SEX!=0)
+df <- subset(df,df$EDUCATION!=0)
+df <- subset(df,df$MARRIAGE!=0)
+df$EDUCATION[df$EDUCATION==6] <- 5
+df$ID <- NULL
+summary(df)
+sapply(df,class)
+```
+Blindly predicts no default, accuracy = 23301/(23301+6631) = 77.87%
+
+```{r}
+barplot(table(df$SEX), main='SEX Bar Plot', xlab='Sex',names.arg = c("Male","Female"))
+barplot(table(df$EDUCATION), main='Education Bar Plot', xlab='Education Level',
+        names.arg = c("Graduate School","University","High School","Others","Unknown"))
+barplot(table(df$MARRIAGE), main='Marriage Bar Plot', xlab='Marital Status',
+        names.arg = c("Married","Single","Others"))
+hist(df$AGE, xlab="Age", main='Histogram of Age')
+```
+
+```{r, warnings=FALSE, message=FALSE}
+attach(df)
+library(ggplot2)
+sex=factor(SEX)
+levels(sex)=c("Male","Female")
+marriage=factor(MARRIAGE)
+levels(marriage)=c("Married","Single","Others")
+education=factor(EDUCATION)
+levels(education)=c("Graduate School","University","High School","Others","Unknown")
+
+ggplot(df,aes(x=sex,fill = default.payment.next.month))+geom_bar()+
+  ggtitle("Gender Profile of Default Payment Vs Non-Default")+
+  xlab("Gender")+
+  theme(legend.position="top")
+
+ggplot(df,aes(x=marriage,fill = default.payment.next.month))+geom_bar()+
+  ggtitle("Marital Status Profile of Default Payment Vs Non-Default")+
+  xlab("Marital Status")+
+  theme(legend.position="top")
+
+ggplot(df, aes(x = education, fill = default.payment.next.month)) + geom_bar() +
+  ggtitle("Education Profile of Default Payment Vs Non-Default")+
+  xlab("Education") +
+  theme(legend.position="top")
+
+# Density plots 
+ggplot(df,aes(x=AGE)) + geom_density(aes(color = default.payment.next.month ))+
+  ggtitle("Age Profile of Default Payment Vs Non-Default")+
+  ylab("Denisty")+
+  theme(legend.position="top")
+
+
+ggplot(df,aes(x=marriage,y=LIMIT_BAL/1000,fill=sex))+geom_boxplot()+
+  xlab("Marital Status")+
+  ylab("Balance Limit")+
+  theme(legend.position="top")
+
+plot(factor(education),LIMIT_BAL/1000,main='Balance Limit vs. Education', xlab='Education Level', ylab="Balance Limit")
+
+ggplot(df,aes(x=default.payment.next.month),aes(y=stat_count((SEX))))+geom_bar(aes(fill=factor(education)))+
+  xlab("Default Status")+
+  ylab("Count")+
+  facet_wrap(~ factor(sex))+
+  theme(legend.position="top")
+```
+
+```{r,warnings=FALSE,message=FALSE}
+library(dplyr)
+##Calculating monthly default rate from April 2005 to September 2005
+default_rate=vector(length=6)
+names(default_rate)= c("04-2005","05-2005","06-2005","07-2005","08-2005","09-2005")
+default_rate[6]= (nrow(filter(df,PAY_1 > 2 ))/nrow(df))*100
+default_rate[5]= (nrow(filter(df,PAY_2 > 2 ))/nrow(df))*100
+default_rate[4]= (nrow(filter(df,PAY_3 > 2 ))/nrow(df))*100
+default_rate[3]= (nrow(filter(df,PAY_4 > 2 ))/nrow(df))*100
+default_rate[2]= (nrow(filter(df,PAY_5 > 2 ))/nrow(df))*100
+default_rate[1]= (nrow(filter(df,PAY_6 > 2 ))/nrow(df))*100
+
+months_name=names(default_rate)
+# Default(rate)=default > 60 days vs months
+data_rate = data.frame(months=months_name, default_rate=default_rate)
+ggplot(data=data_rate,aes(x=months, y=default_rate))+geom_point()+
+  ggtitle("Default rate(default payment > 2 months) Vs. Months")+
+  xlab("Months")+
+  ylab("Default Rate (%)")+
+  geom_point()+
+  geom_line()
+```
+Default rate is linearly increasing from April 2005 to August 2005 and then slowing down in September 2005.
+
+
+```{r, warnings=FALSE,message=FALSE}
+library(corrplot)
+cor=cor(subset(df,select=c(LIMIT_BAL,SEX,EDUCATION,MARRIAGE,AGE,PAY_1,PAY_2,PAY_3,PAY_4,PAY_5,PAY_6,
+                           BILL_AMT1,BILL_AMT2,BILL_AMT3,BILL_AMT4,BILL_AMT5,BILL_AMT6,
+                           PAY_AMT1,PAY_AMT2,PAY_AMT3,PAY_AMT4,PAY_AMT5,PAY_AMT6)))
+corrplot(cor,method="circle")
+
+dcor=cor(subset(df,select=c(LIMIT_BAL,
+                           BILL_AMT1,BILL_AMT2,BILL_AMT3,BILL_AMT4,BILL_AMT5,BILL_AMT6,
+                           PAY_AMT1,PAY_AMT2,PAY_AMT3,PAY_AMT4,PAY_AMT5,PAY_AMT6)))
+corrplot(dcor,method="circle")
+
+```
+The above correlation plot shows a strong correlation between billing amounts in each month and no correlation between payment status in each month.
+
+High correlation between PAY, BILL_AMT
+one in BILL_AMT
+
+
+```{r}
+set.seed(1)
+train_ind = sample(1:nrow(df),0.75*nrow(df))
+df_train = df[train_ind,]
+df_test = df[-train_ind,]
+df_logit = glm(default.payment.next.month ~ ., data = df_train, family = binomial)
+summary(df_logit)
+```
+LIMIT_BAL, SEX, EDUCATION, MARRIAGE, AGE, PAY_1, PAY_2, PAY_3, BILL_AMT1, PAY_AMT1, PAY_AMT2
+
+```{r,warnings=FALSE,message=FALSE}
+library(ROCR)
+logit_pred = predict(df_logit, df_test, type = "response")
+pred <- prediction(logit_pred, df_test$default.payment.next.month)
+perf <- performance(pred,"tpr","fpr")
+
+# plotting the ROC curve
+plot(perf,col="black",lty=3, lwd=3)
+auc <- performance(pred, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+# KS STATISTIC
+ks <- max(perf@y.values[[1]]-perf@x.values[[1]])
+ks
+
+
+library(MLmetrics)
+#KS_Stat(y_pred = logit_pred, y_true = df_test$default.payment.next.month)
+default_num=as.numeric(df_test$default.payment.next.month)
+Gini(y_pred = logit_pred, y_true = default_num)
+
+library(pROC)
+my_roc <- roc(df_test$default.payment.next.month, logit_pred)
+coords(my_roc, "best", ret = "threshold")
+logit_bin = as.numeric(logit_pred >=coords(my_roc, "best", ret = "threshold"))
+table(logit_bin, df_test$default.payment.next.month)
+output = table(logit_bin, df_test$default.payment.next.month)
+acc1 = (output[1,1]+output[2,2])/sum(output)
+acc1
+```
+
+
+```{r,warnings=FALSE,message=FALSE}
+library(leaps)
+regfit.full <- regsubsets(default.payment.next.month~.,data=df,nvmax=23)
+reg.summary <- summary(regfit.full)
+coef(regfit.full,9)
+reg.summary$rss
+reg.summary$rsq
+which.min(reg.summary$rss) 
+which.max(reg.summary$rsq)
+```
+
+```{r}
+plot(reg.summary$adjr2,xlab="Number of Variables",ylab="Adjusted R Square", type="l")
+which.max(reg.summary$adjr2)
+points(15,reg.summary$adjr2[15],col="red",cex=2,pch=20)
+
+plot(reg.summary$cp,xlab="Number of Variables",ylab="Cp", type="l")
+which.min(reg.summary$cp)
+points(15,reg.summary$cp[15],col="red",cex=2,pch=20)
+
+plot(reg.summary$bic,xlab="Number of Variables",ylab="BIC", type="l")
+which.min(reg.summary$bic)
+points(9,reg.summary$bic[9],col="red",cex=2,pch=20)
+```
+9 variables, easy to interpret
+9 -- LIMIT_BAL + EDUCATION + MARRIAGE + AGE + PAY_1 + PAY_2 + PAY_3 + BILL_AMT1 + PAY_AMT1
+10 -- LIMIT_BAL + SEX + EDUCATION + MARRIAGE + AGE + PAY_1 + PAY_2 + PAY_3 + BILL_AMT1 + PAY_AMT1
+
+```{r}
+keep=c("LIMIT_BAL", "EDUCATION", "MARRIAGE", "AGE", "PAY_1", "PAY_2", "PAY_3", "BILL_AMT1", "PAY_AMT1","default.payment.next.month")
+df_new=df[keep]
+set.seed(1)
+train_ind = sample(1:nrow(df_new),0.75*nrow(df_new))
+df_train = df_new[train_ind,]
+df_test = df_new[-train_ind,]
+summary(df_train$default.payment.next.month)
+df_logit = glm(default.payment.next.month ~., data = df_train, family = binomial)
+summary(df_logit)
+```
+
+```{r message=FALSE, warning=FALSE}
+library(ROCR)
+logit_pred = predict(df_logit, df_test, type = "response")
+pred <- prediction(logit_pred, df_test$default.payment.next.month)
+perf <- performance(pred,"tpr","fpr")
+
+# plotting the ROC curve
+plot(perf,col="black",lty=3, lwd=3)
+auc <- performance(pred, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+# KS STATISTIC
+ks <- max(perf@y.values[[1]]-perf@x.values[[1]])
+ks
+```
+
+```{r message=FALSE, warning=FALSE}
+library(pROC)
+my_roc <- roc(df_test$default.payment.next.month, logit_pred)
+coords(my_roc, "best", ret = "threshold")
+logit_bin = as.numeric(logit_pred >=coords(my_roc, "best", ret = "threshold"))
+table(logit_bin, df_test$default.payment.next.month)
+output = table(logit_bin, df_test$default.payment.next.month)
+acc1 = (output[1,1]+output[2,2])/sum(output)
+acc1
+```
+```{r message=FALSE, warning=FALSE}
+library(MLmetrics)
+default_num=as.numeric(df_test$default.payment.next.month)
+Gini(y_pred = logit_pred, y_true = default_num)
+```
+
+```{r}
+set.seed(1)
+train_ind = sample(1:nrow(df),0.75*nrow(df))
+df_normal = scale(df[, !names(df) %in% 'default.payment.next.month'])
+df_normal_train = df_normal[train_ind,]
+df_normal_test = df_normal[-train_ind,]
+train.default = df_new$default.payment.next.month[train_ind]
+test.default = df_new$default.payment.next.month[-train_ind]
+```
+
+```{r}
+#KNN
+library(class)
+k = c(1, 5, 10, 20, 50, 75, 100)
+accuracy = rep(NA, length(k)) 
+for (i in seq(length(k))){
+  set.seed(1)
+  knn.pred = knn(df_normal_train, df_normal_test, train.default, k=k[i]);
+  accuracy[i] = mean(knn.pred == test.default)
+}
+accuracy
+plot(k, accuracy, type = "b", col="red")
+```
+
+```{r}
+#set.seed(1)
+#knn.pred = knn(df_normal_train, df_normal_test, train.default, k=50)
+#knn.pred1 <- attr(knn.pred, "prob")
+pred <- prediction(knn.pred1, test.default)
+perf <- performance(pred,"tpr","fpr")
+
+# plotting the ROC curve
+plot(perf,col="black",lty=3, lwd=3)
+auc <- performance(pred, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+# KS STATISTIC
+ks <- max(perf@y.values[[1]]-perf@x.values[[1]])
+ks
+```
+
+```{r}
+x=model.matrix(default.payment.next.month~.,data.frame(df_normal))[,-1]
+y=df$default.payment.next.month
+```
+
+```{r,warnings=FALSE, message=FALSE}
+library(glmnet)
+# Model fit on the training set
+ridge.mod <- glmnet(x[train_ind,], y[train_ind], alpha=0, thresh=1e-12, family = "binomial")
+# Use 10-fold cross-validation to choose lambda
+set.seed(1)
+cv.out=cv.glmnet(x[train_ind,], y[train_ind], nfolds = 10, lambda = ridge.mod$lambda, alpha=0, family = "binomial",type.measure = "mse")
+plot(cv.out)
+bestlam = cv.out$lambda.min
+bestlam
+```
+
+```{r}
+plot(ridge.mod,xvar="lambda")
+abline(v=log(bestlam),col="red")
+coef(cv.out,s=bestlam)
+```
+
+```{r,message=FALSE, warning=FALSE}
+ridge.prob = predict(ridge.mod, s = bestlam, newx=x[-train_ind,], type="response")
+
+pred <- prediction(ridge.prob, y[-train_ind])
+perf <- performance(pred,"tpr","fpr")
+
+# plotting the ROC curve
+plot(perf,col="black",lty=3, lwd=3)
+auc <- performance(pred, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+# KS STATISTIC
+ks <- max(perf@y.values[[1]]-perf@x.values[[1]])
+ks
+default_num=as.numeric(y[-train_ind])
+Gini(y_pred = ridge.prob, y_true = default_num)
+
+my_roc <- roc(y[-train_ind], ridge.prob)
+coords(my_roc, "best", ret = "threshold")
+ridge_bin = as.numeric(ridge.prob >=coords(my_roc, "best", ret = "threshold"))
+table(ridge_bin, y[-train_ind])
+output = table(ridge_bin, y[-train_ind])
+acc2 = (output[1,1]+output[2,2])/sum(output)
+acc2
+
+```
+
+```{r}
+# Model fit on the training set
+lasso.mod <- glmnet(x[train_ind,], y[train_ind], alpha=1, thresh=1e-12, family = "binomial")
+# Use 10-fold cross-validation to choose lambda
+set.seed(1)
+cv.out=cv.glmnet(x[train_ind,], y[train_ind], nfolds = 10, lambda = lasso.mod$lambda, alpha=1, family = "binomial", type.measure = "auc")
+plot(cv.out)
+bestlam = cv.out$lambda.min
+bestlam = exp(-3.4)
+bestlam
+```
+
+```{r}
+plot(lasso.mod,xvar="lambda")
+abline(v=log(bestlam),col="red")
+coef(cv.out,s=bestlam)
+```
+
+
+```{r message=FALSE, warning=FALSE}
+lasso.prob = predict(lasso.mod, s = bestlam, newx=x[-train_ind,], type="response")
+pred <- prediction(lasso.prob, y[-train_ind])
+perf <- performance(pred,"tpr","fpr")
+
+# plotting the ROC curve
+plot(perf,col="black",lty=3, lwd=3)
+auc <- performance(pred, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+
+# KS STATISTIC
+ks <- max(perf@y.values[[1]]-perf@x.values[[1]])
+ks
+
+Gini(y_pred = lasso.prob, y_true = default_num)
+
+my_roc <- roc(y[-train_ind], lasso.prob)
+coords(my_roc, "best", ret = "threshold")
+lasso_bin = as.numeric(lasso.prob >=coords(my_roc, "best", ret = "threshold"))
+table(lasso_bin, y[-train_ind])
+output = table(ridge_bin, y[-train_ind])
+acc3 = (output[1,1]+output[2,2])/sum(output)
+acc3
+```
+
+
+
+```{r, warnings=FALSE, message=FALSE}
+library(tree)
+library(rpart)
+library(rpart.plot)
+fit <- rpart(default.payment.next.month ~ ., method="class", data=df, subset = train_ind, cp=0.001)
+print(fit) # display the results 
+par(mfrow = c(1,1), xpd = NA)
+summary(fit)
+
+fit$cptable
+
+plotcp(fit)
+
+rpart.plot(fit, tweak=1, type = 2, fallen.leaves = TRUE, main="Decision Tree") #fit.pruned
+fit.pred <- predict(fit, df_test, type="class")
+table(fit.pred,df_test$default.payment.next.month)
+mean(fit.pred == df_test$default.payment.next.month)
+caret::varImp(fit, surrogates = FALSE, competes = TRUE)
+
+fit.pruned <- prune(fit, cp = 0.0016)
+rpart.plot(fit.pruned, tweak=1, type = 2, fallen.leaves = TRUE, main="Decision Tree") 
+fit.pred <- predict(fit.pruned, df_test, type="class")
+table(fit.pred,df_test$default.payment.next.month)
+mean(fit.pred == df_test$default.payment.next.month)
+caret::varImp(fit.pruned, surrogates = FALSE, competes = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+library(tree)
+set.seed(1)
+train_ind = sample(1:nrow(df),0.75*nrow(df))
+df_train = df[train_ind,]
+df_test = df[-train_ind,]
+tree.default=tree(default.payment.next.month ~., df_train)
+summary(tree.default)
+tree.pred=predict(tree.default,df_test,type="class")
+table(tree.pred,df_test$default.payment.next.month)
+plot(tree.default)
+text(tree.default,pretty=0)
+set.seed(1)
+cv.default=cv.tree(tree.default,FUN=prune.misclass)
+cv.default
+plot(cv.default$size ,cv.default$dev ,type="b")
+plot(cv.default$k ,cv.default$dev ,type="b")
+prune.default=prune.misclass(tree.default,best=2)
+plot(prune.default)
+text(prune.default,pretty=0)
+prune.pred=predict(prune.default,df_test,type="class")
+table(prune.pred,df_test$default.payment.next.month)
+```
+
+```{r}
+tree.pred=predict(tree.default,df_test,type="vector")
+pred <- prediction(tree.pred[,2], df_test$default.payment.next.month)
+perf <- performance(pred,"tpr","fpr")
+
+# plotting the ROC curve
+plot(perf,col="black",lty=3, lwd=3)
+auc <- performance(pred, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+# KS STATISTIC
+ks <- max(perf@y.values[[1]]-perf@x.values[[1]])
+ks
+
+library(MLmetrics)
+default_num=as.numeric(df_test$default.payment.next.month)
+Gini(y_pred = tree.default, y_true = default_num)
+```
+
+```{r,warnings=FALSE,message=FALSE}
+library(randomForest)
+#bagging
+set.seed(1)
+bag.default=randomForest(default.payment.next.month~.,data=df,subset=train_ind,mtry=23,ntree=200)
+yhat.bag = predict(bag.default,newdata=df_test,type="class")
+table(yhat.bag,df_test$default.payment.next.month)
+mean(yhat.bag==df_test$default.payment.next.month)
+```
+
+```{r}
+importance(bag.default)
+varImpPlot(bag.default)
+```
+
+```{r}
+yhat.bag = predict(bag.default,newdata=df_test,type="prob")
+pred <- prediction(yhat.bag[,2], df_test$default.payment.next.month)
+perf <- performance(pred,"tpr","fpr")
+
+# plotting the ROC curve
+plot(perf,col="black",lty=3, lwd=3)
+auc <- performance(pred, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+# KS STATISTIC
+ks <- max(perf@y.values[[1]]-perf@x.values[[1]])
+ks
+
+#library(MLmetrics)
+#default_num=as.numeric(df_test$default.payment.next.month)
+#Gini(y_pred = bag.default, y_true = default_num)
+```
+
+
+```{r message=FALSE, warning=FALSE}
+# Grows the forest
+set.seed(1)
+fit.forest <- randomForest(default.payment.next.month~., data=df,subset=train_ind, na.action=na.roughfix, mtry=5,ntree=200, importance=TRUE)
+
+yhat.bag = predict(fit.forest,newdata=df_test,type="class")
+table(yhat.bag,df_test$default.payment.next.month)
+mean(yhat.bag==df_test$default.payment.next.month)
+
+# Determine variable importance
+
+importance(fit.forest)
+varImpPlot(fit.forest)
+```
+
+```{r}
+yhat.bag = predict(fit.forest,newdata=df_test,type="prob")
+pred <- prediction(yhat.bag[,2], df_test$default.payment.next.month)
+perf <- performance(pred,"tpr","fpr")
+
+# plotting the ROC curve
+plot(perf,col="black",lty=3, lwd=3)
+auc <- performance(pred, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+# KS STATISTIC
+ks <- max(perf@y.values[[1]]-perf@x.values[[1]])
+ks
+
+library(MLmetrics)
+default_num=as.numeric(df_test$default.payment.next.month)
+Gini(y_pred = fit.foresst, y_true = default_num)
+```
+
+```{r,warning=FALSE,message=FALSE}
+hc.complete=hclust(dist(x), method="complete")
+plot(hc.complete,main="Complete Linkage", cex=.9)
+```
+
